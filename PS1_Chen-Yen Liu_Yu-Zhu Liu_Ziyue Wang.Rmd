@@ -1,0 +1,212 @@
+---
+title: "PS1"
+author: "ChenYen Liu_Yuzhu Liu_Ziyue Wang"
+date: "2023-01-27"
+output: md_document
+---
+
+
+```{r setup, include=FALSE, echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(rsample)  # for creating train/test splits
+library(caret)
+library(modelr)
+library(parallel)
+library(foreach)
+library(patchwork)
+library(tidyverse)
+library(mosaic)
+library(ggplot2)
+library(data.table)
+library(rsample)
+library(caret)
+library(modelr)
+library(parallel)
+library(foreach)
+library(latexpdf)
+```
+# Question1 - Flights at ABIA
+
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+#read data
+#ABIA<-read_csv('/Users/hiziyue/Desktop/2023 Spring/RA/ABIA.csv')
+
+ABIA<-read_csv('/Users/yuzhuliu/Desktop/Data Mining/PS1/ABIA.csv')
+
+by_monthly_destination = ABIA %>% 
+  group_by(Month, Dest) %>% 
+  summarize(count = n(),
+            mean_DepDelay = mean(DepDelay, na.rm=TRUE))
+
+ave_1 <- aggregate(mean_DepDelay ~ Month, by_monthly_destination, mean)
+```
+
+### Question a: What's the best time of year to fly to minimize delays?
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+ggplot(ave_1) + geom_col(aes(x=factor(Month), y=mean_DepDelay))
+```
+### Question b: Does the best time to fly to min delays change by destination?
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+#choose top 10 popular destinations
+install.packages("plyr",repos = "http://cran.us.r-project.org")
+library(plyr)
+count(ABIA, "Dest")
+c2 <- count(ABIA, "Dest")
+by_monthly_destination1 <- merge(x=by_monthly_destination, y=c2, by="Dest", all.x = TRUE)
+
+library(dplyr)
+by_monthly_destination1 <- filter(by_monthly_destination1, freq > 1350)
+by_monthly_destination1 <- filter(by_monthly_destination1, freq <10000)
+```
+```{r, echo=FALSE,message=FALSE, warning=FALSE}
+#ggplot
+library(ggplot2)
+ggplot(by_monthly_destination1) + 
+  geom_col(aes(x=factor(Month), y=mean_DepDelay)) + 
+  facet_wrap(~Dest)
+```
+# 2) Wrangling the Olympics
+
+## (2.A) What is the 95th percentile of heights for female competitors across all Athletics events
+
+95th percentile of heights for female competitors across all Athletics events is 186.
+```{r echo=FALSE}
+
+Olym<-read.csv("/Users/yuzhuliu/Desktop/Data Mining/PS1/olympics_top20.csv")
+
+OlymF<-Olym%>%
+ subset(sex %in% c("F"))
+
+  
+  result <- quantile(OlymF$height, c(0.95))
+#print(result)
+
+```
+## (2.B) Which single women's event had the greatest variability in competitor's heights across the entire history of the Olympics, as measured by the standard deviation?
+
+Rowing Women's Coxed Fours has the greatest variability, with standard derivation equals to 10.9
+ 
+```{r echo=FALSE}
+
+Olymevent<-OlymF%>%
+  group_by(event) %>%
+  summarize(avg_height = mean(height),
+            sd_height  = sd(height))%>%
+ arrange(desc(sd_height))
+
+#Olymevent %>% arrange(desc(sd_height))
+  
+```
+## (2.C) How has the average age of Olympic swimmers changed over time? Does the trend look different for male swimmers relative to female swimmers? 
+
+The trend between female and male swimmers is different before around 1935,where age of male swimmers decreases and then increases, and then decreases, and age of female swimmers slightly increases.
+
+After 1950, age of all swimmers has an increasing trend.
+
+
+```{r echo=FALSE,fig.height = 10}
+
+OlymSwim<-Olym%>%
+ subset(sport %in% c("Swimming"))%>%
+  group_by(year) %>%
+  summarize(avg_height = mean(height))
+
+p3<-ggplot(OlymSwim) + 
+  geom_line(aes(x=year, y=avg_height))+
+  labs(title="Total swimmer average age change")
+
+OlymSwimF<-Olym%>%
+   subset(sex %in% c("F"))%>%
+  subset(sport %in% c("Swimming"))%>%
+  group_by(year) %>%
+  summarize(avg_height = mean(height))
+
+OlymSwimM<-Olym%>%
+   subset(sex %in% c("M"))%>%
+  subset(sport %in% c("Swimming"))%>%
+  group_by(year) %>%
+  summarize(avg_height = mean(height))
+
+
+p4<-ggplot() + 
+  #geom_line(data = OlymSwim, aes(x=year, y=avg_height, color="Total"))+
+  geom_line(data = OlymSwimF, aes(x=year, y=avg_height,color="Female")) +
+  geom_line(data = OlymSwimM, aes(x=year, y=avg_height, color="Male")) +
+  labs(title="Swimmer average age change")+
+  theme(legend.position="bottom", legend.direction="horizontal")
+
+p3/p4
+   
+
+
+```
+## Question 3
+
+
+```{r echo=FALSE}
+sclass <- read.csv("/Users/yuzhuliu/Desktop/Data Mining/PS1/sclass.csv")
+```
+```{r echo=FALSE, include=FALSE}
+trim_350 <- filter(sclass, trim == "350")
+trim_65AMG <- filter(sclass, trim == "65 AMG")
+trim_350_split <- initial_split(trim_350, prop = 0.8)
+trim_65AMG_split <- initial_split(trim_65AMG, prop = 0.8)
+trim_350_training <- training(trim_350_split)
+trim_350_testing <- testing(trim_350_split)
+trim_65AMG_training <- training(trim_65AMG_split)
+trim_65AMG_testing <- testing(trim_65AMG_split)
+```
+```{r echo=FALSE, include=FALSE}
+k_grid = c(2, 4, 6, 8, 10, 15, 20, 25, 30, 35, 40, 45,
+           50, 60, 70, 80, 90, 100, 125, 150, 175, 200)
+grid_350 = foreach(k = k_grid, .combine='rbind') %do% {
+  models_350 = knnreg(price ~ mileage,
+                  data=trim_350_training, k=k)
+  errs_350 = modelr::rmse(models_350, data=trim_350_testing)
+  c(k=k, err_350 = mean(errs_350))
+} %>% as.data.frame
+
+
+ggplot(grid_350) + 
+  geom_point(aes(x=k, y=err_350)) + 
+  scale_x_log10() +
+  ggtitle("RMSE under different K for trim=350")
+```
+From the above plot, when k = 10, we can get the minimal RMSE.
+
+```{r echo=FALSE, include=FALSE}
+model_350 = knnreg(price ~ mileage, data=trim_350_training, k=10)
+trim_350_testing = trim_350_testing %>%
+  mutate(price_pred = predict(model_350, trim_350_testing))
+origin_350 <- ggplot(data = trim_350_testing) + 
+  geom_point(mapping = aes(x = mileage, y = price), alpha=0.2)
+origin_350 + geom_line(aes(x = mileage, y = price_pred), color='darkred', size=1.5) + ggtitle("Predict value for trim=350")
+```
+```{r echo=FALSE, include=FALSE}
+k_grid = c(2, 4, 6, 8, 10, 15, 20, 25, 30, 35, 40, 45,
+           50, 60, 70, 80, 90, 100, 125, 150, 175, 200)
+grid_AMG = foreach(k = k_grid, .combine='rbind') %do% {
+  models_AMG = knnreg(price ~ mileage,
+                  data=trim_65AMG_training, k=k)
+  errs_AMG = modelr::rmse(models_AMG, data=trim_65AMG_testing)
+  c(k=k, err_AMG = mean(errs_AMG))
+} %>% as.data.frame
+
+
+ggplot(grid_AMG) + 
+  geom_point(aes(x=k, y=err_AMG)) + 
+  scale_x_log10() +
+  ggtitle("RMSE under different K for trim=65 AMG")
+```
+From the above plot, when k = 35, we can get the minimal RMSE.
+```{r echo=FALSE, include=FALSE}
+model_AMG = knnreg(price ~ mileage, data=trim_65AMG_training, k=10)
+trim_65AMG_testing = trim_65AMG_testing %>%
+  mutate(price_pred = predict(model_AMG, trim_65AMG_testing))
+origin_AMG <- ggplot(data = trim_65AMG_testing) + 
+  geom_point(mapping = aes(x = mileage, y = price), alpha=0.2)
+origin_AMG + geom_line(aes(x = mileage, y = price_pred), color='darkblue', size=1.5) + ggtitle("Predict value for trim = 65 AMG")
+```
+From the above two plots, under the same mileage, trim = 65AMG has a higher value.
+This may because people have a preference for trim 65AMG or people have a higher demand for this sub-model.
